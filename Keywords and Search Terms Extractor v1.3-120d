@@ -1,0 +1,108 @@
+var config = {
+  LOG: false,
+  DATE_RANGE: last_n_days(120),
+  SPREADSHEET_URL: "https://docs.google.com/spreadsheets/d/1nwjIaV9"
+};
+
+function main() {
+  var today = new Date();
+  var oneTwentyDaysAgo = new Date(today.getTime() - 120 * 24 * 60 * 60 * 1000);
+  var startDate = formatDate(oneTwentyDaysAgo);
+  var endDate = formatDate(today);
+
+  var spreadsheet = SpreadsheetApp.openByUrl(config.SPREADSHEET_URL);
+  var campaignIterator = AdsApp
+    .performanceMaxCampaigns()
+    .withCondition("campaign.status = ENABLED")
+    .get();
+
+  while (campaignIterator.hasNext()) {
+    var campaign = campaignIterator.next();
+    var campaignId = campaign.getId();
+
+    var query = 'SELECT campaign_search_term_insight.category_label, metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value ' +
+      'FROM campaign_search_term_insight ' +
+      'WHERE segments.date BETWEEN "' + startDate + '" AND "' + endDate + '" ' +
+      'AND campaign_search_term_insight.campaign_id = ' + campaignId +
+      ' ORDER BY metrics.impressions DESC';
+
+    var report = AdsApp.report(query);
+
+    if (config.LOG === true) {
+      Logger.log("Report " + campaign.getName() + " contains " + report.rows().totalNumEntities() + " rows.");
+    }
+
+    var sheet = checkTab(spreadsheet, campaign.getName());
+    report.exportToSheet(sheet);
+  }
+}
+
+function checkTab(file, tabName) {
+  if (SpreadsheetApp.openById(file.getId()).getSheetByName(tabName)) {
+    var tab = SpreadsheetApp.openById(file.getId()).getSheetByName(tabName);
+
+    if (config.LOG === true) {
+      Logger.log("Selected tab " + tabName);
+    }
+  } else {
+    var tab = SpreadsheetApp.openById(file.getId()).insertSheet(tabName);
+
+    if (config.LOG === true) {
+      Logger.log("Created tab " + tabName);
+    }
+  }
+
+  // Remove default tab in Dutch
+  if (SpreadsheetApp.openById(file.getId()).getSheetByName("Blad1")) {
+    var defaultSheet = SpreadsheetApp.openById(file.getId()).getSheetByName("Blad1");
+    SpreadsheetApp.openById(file.getId()).deleteSheet(defaultSheet);
+  }
+
+  // Remove default tab in English
+  if (SpreadsheetApp.openById(file.getId()).getSheetByName("Sheet1")) {
+    var defaultSheet = SpreadsheetApp.openById(file.getId()).getSheetByName("Sheet1");
+    SpreadsheetApp.openById(file.getId()).deleteSheet(defaultSheet);
+  }
+
+  return tab;
+}
+
+function last_n_days(n) {
+  var from = new Date();
+  var to = new Date();
+  to.setUTCDate(from.getUTCDate() - n);
+  from.setUTCDate(from.getUTCDate() - 1);
+
+  return google_date_range(from, to);
+}
+
+function google_date_range(from, to) {
+  function google_format(date) {
+    var date_array = [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate()];
+    if (date_array[1] < 10) date_array[1] = '0' + date_array[1];
+    if (date_array[2] < 10) date_array[2] = '0' + date_array[2];
+
+    return date_array.join('');
+  }
+
+  var inverse = from > to;
+  from = google_format(from);
+  to = google_format(to);
+  var result = [from, to];
+
+  if (inverse) {
+    result = [to, from];
+  }
+
+  return result.join(',');
+}
+
+function formatDate(date) {
+  var year = date.getFullYear();
+  var month = date.getMonth() + 1;
+  month = (month < 10 ? "0" : "") + month;
+  var day = date.getDate();
+  day = (day < 10 ? "0" : "") + day;
+
+  return year + "-" + month + "-" + day;
+}
